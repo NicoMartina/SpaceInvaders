@@ -4,6 +4,7 @@ import java.sql.Array;
 import java.util.ArrayList;
 import java.util.Random;
 import javax.swing.*;
+import javax.sound.sampled.*;
 
 public class SpaceInvaders extends JPanel implements ActionListener, KeyListener {
 
@@ -23,6 +24,7 @@ public class SpaceInvaders extends JPanel implements ActionListener, KeyListener
             this.height = height;
             this.img = img;
         }
+
     }
 
 
@@ -69,8 +71,17 @@ public class SpaceInvaders extends JPanel implements ActionListener, KeyListener
     int bulletVelocityY = -10; //speed of the bullet
 
 
+    // Flags for movement and shooting
+    boolean moveLeft = false;
+    boolean moveRight = false;
+    boolean shooting = false;
+
+
+
 
     Timer gameLoop; //this is for our game to update the graphics every time we shoot a bullet or move the ship sideways
+    int score = 0;
+    boolean gameOver = false;
     SpaceInvaders(){
         setPreferredSize(new Dimension(boardWidth, boardHeight));
         setBackground(Color.black);
@@ -104,6 +115,8 @@ public class SpaceInvaders extends JPanel implements ActionListener, KeyListener
         draw(g);
     }
 
+
+    //DRAW ON THE GAME WINDOW
     public void draw(Graphics g) {
         //ship
         g.drawImage(ship.img, ship.x, ship.y, ship.width, ship.height, null);
@@ -125,6 +138,17 @@ public class SpaceInvaders extends JPanel implements ActionListener, KeyListener
             }
         }
 
+        //SCORE
+        g.setColor(Color.green);
+        g.setFont(new Font("ariel", Font.PLAIN, 32));
+        if (gameOver) {
+            g.drawString("Game over: " + String.valueOf(score), 10,35); //this will write out game over and your score
+            g.drawString("Please press any ", 10, 70 );
+            g.drawString("key to restart the game", 10, 100);
+        }
+        else {
+            g.drawString(String.valueOf(score), 10, 35); //this will write out your score
+        }
     }
 
     public void move(){  // this function will handle of the movements for the aliens and the bullets
@@ -135,7 +159,7 @@ public class SpaceInvaders extends JPanel implements ActionListener, KeyListener
                 alien.x += alienVelocityX;
 
                 //if alien touches the sides
-                if (alien.x +alien.width >= boardWidth || alien.x <= 0){
+                if (alien.x + alien.width >= boardWidth || alien.x <= 0){
                     alienVelocityX *= -1;
                     alien.x += alienVelocityX*2;
 
@@ -144,6 +168,10 @@ public class SpaceInvaders extends JPanel implements ActionListener, KeyListener
                         alienArray.get(j).y += alienHeight;
                     }
                 }
+
+                if (alien.y >= ship.y) {
+                    gameOver = true;
+                }
             }
         }
 
@@ -151,11 +179,73 @@ public class SpaceInvaders extends JPanel implements ActionListener, KeyListener
         for (int i = 0; i < bulletArray.size(); i++){
             Block bullet = bulletArray.get(i);
             bullet.y += bulletVelocityY;
+
+            //bullet collision with aliens
+            for (int j = 0; j < alienArray.size(); j++){
+                Block alien = alienArray.get(j);
+                if (!bullet.used && alien.alive && detectCollision(bullet, alien)){
+                    bullet.used = true;
+                    alien.alive = false;
+                    alienCount--;
+                    score += 100;
+                }
+            }
+        }
+
+        //CLEAR BULLETS
+
+        //here we check if we have bullets in our array AND those bullets have been used OR those bullets are past the screen. We should delete them.
+        // We do this for memory purposes
+        while (bulletArray.size() > 0 && (bulletArray.get(0).used || bulletArray.get(0).y < 0)){
+            bulletArray.remove(0);
+        }
+
+        //next level
+        if (alienCount == 0){
+            //bonus points
+            score += alienColumns * alienRows * 100;
+
+            //increase the number of aliens columns and rows by 1
+            alienColumns = Math.min(alienColumns + 1, columns/2 - 2); //cap column  at 16/2 - 2 = 6
+            alienRows = Math.min(alienRows + 1, rows - 6); //cap rows at 16 - 6 = 10
+
+            alienArray.clear();
+            bulletArray.clear();
+
+            //increase alien speed
+            alienVelocityX += alienVelocityX > 0 ? 1 : -1; //mantain direction while increasing speed
+            createAliens();
+        }
+
+        // Continuous movement
+        if (moveLeft && ship.x - shipVelocityX >= 0) {
+            ship.x -= shipVelocityX;
+        }
+        if (moveRight && ship.x + ship.width + shipVelocityX <= boardWidth) {
+            ship.x += shipVelocityX;
+        }
+
+        // Continuous shooting
+        if (shooting) {
+            fireBullet();
+        }
+
+
+
+    }
+
+
+    //better shooting
+    public void fireBullet() {
+        if (bulletArray.size() < 3) { // Limit number of bullets on screen
+            Block bullet = new Block(ship.x + shipWidth * 15 / 32, ship.y, bulletWidth, bulletHeight, null);
+            bulletArray.add(bullet);
         }
     }
 
 
 
+    //CREATE ALIENS
     public void createAliens(){
         Random random = new Random(); // this will create a random number, that will choose a random alien pic
         for (int r = 0; r < alienRows; r++){
@@ -174,10 +264,31 @@ public class SpaceInvaders extends JPanel implements ActionListener, KeyListener
         alienCount = alienArray.size();
     }
 
+    public boolean detectCollision(Block a, Block b){
+        return a.x < b.x  + b.width &&    //  a's top left corner doesn't reach  b's top  right corner
+                a.x + a.width > b.x &&    //  a's top right corner passes  b's top  left corner
+                a.y < b.y + b.height &&   //  a's top left corner doesn't reach  b's bottom  left corner
+                a.y + a.height > b.y;     //  a's bottom left corner passes b's top  right corner
+    }
+
+    public void playSound(String soundFile) {
+        try {
+            AudioInputStream audioStream = AudioSystem.getAudioInputStream(getClass().getResource(soundFile));
+            Clip clip = AudioSystem.getClip();
+            clip.open(audioStream);
+            clip.start();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
     @Override
     public void actionPerformed(ActionEvent e) {
         move();
         repaint();
+        if (gameOver) {
+            gameLoop.stop();
+        }
     }
 
     @Override
@@ -187,21 +298,34 @@ public class SpaceInvaders extends JPanel implements ActionListener, KeyListener
 
     @Override
     public void keyPressed(KeyEvent e) {
-
+        if (gameOver) {
+            ship.x = shipX;
+            alienArray.clear();
+            bulletArray.clear();
+            score = 0;
+            alienVelocityX = 1;
+            alienColumns = 3;
+            alienRows = 2;
+            gameOver = false;
+            createAliens();
+            gameLoop.start();
+        } else {
+            switch (e.getKeyCode()) {
+                case KeyEvent.VK_LEFT -> moveLeft = true;
+                case KeyEvent.VK_RIGHT -> moveRight = true;
+                case KeyEvent.VK_SPACE -> fireBullet();
+            }
+        }
     }
 
     @Override
     public void keyReleased(KeyEvent e) {
-        if(e.getKeyCode() == KeyEvent.VK_LEFT && ship.x - shipVelocityX >= 0){
-            ship.x -= shipVelocityX; //ship moves left one tile
-        }
-        else if (e.getKeyCode() == KeyEvent.VK_RIGHT && ship.x + ship.width + shipVelocityX <= boardWidth){
-            ship.x += shipVelocityX; //ship moves right one tile
-        }
-        else if (e.getKeyCode() == KeyEvent.VK_SPACE){
-            Block bullet = new Block(ship.x + shipWidth*15/32, ship.y, bulletWidth, bulletHeight, null);
-            bulletArray.add(bullet);
+        switch (e.getKeyCode()) {
+            case KeyEvent.VK_LEFT -> moveLeft = false;
+            case KeyEvent.VK_RIGHT -> moveRight = false;
+            //case KeyEvent.VK_SPACE -> shooting = false;
         }
     }
+
 
 }
